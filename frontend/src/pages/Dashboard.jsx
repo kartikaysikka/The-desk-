@@ -8,7 +8,7 @@ const FILTERS = [["", "All"], ["pending_review", "Awaiting"], ["published", "Pub
 const PostCard = ({ p, i }) => (
   <Link to={`/posts/${p.id}`} data-testid={`post-card-${p.id}`} className="nd-card nd-rise block border-2 border-black bg-white" style={{ animationDelay: `${i * 50}ms` }}>
     <div className="aspect-[4/5] bg-black overflow-hidden">
-      <img src={p.rendered_urls[0]} alt={p.headline} className="w-full h-full object-cover" loading="lazy" />
+      <img src={`${process.env.REACT_APP_BACKEND_URL}${p.rendered_urls[0]}`} alt={p.headline} className="w-full h-full object-cover" loading="lazy" />
     </div>
     <div className="p-4 border-t-2 border-black">
       <div className="flex justify-between font-mono text-[11px] uppercase tracking-wider">

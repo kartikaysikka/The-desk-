@@ -11,7 +11,7 @@ export const SlidePreview = ({ urls, handle, caption }) => {
         <span className="font-semibold text-sm">{handle?.replace("@", "")}</span>
       </div>
       <div className="relative aspect-[4/5] bg-black overflow-hidden">
-        <img src={urls[i]} alt={`slide ${i + 1}`} className="w-full h-full object-cover" data-testid="preview-image" />
+        <img src={`${process.env.REACT_APP_BACKEND_URL}${urls[i]}`} alt={`slide ${i + 1}`} className="w-full h-full object-cover" data-testid="preview-image" />
         {i > 0 && <button data-testid="preview-prev" onClick={() => go(-1)} className="absolute left-2 top-1/2 -translate-y-1/2 bg-white/90 rounded-full p-1"><ChevronLeft size={18} /></button>}
         {i < urls.length - 1 && <button data-testid="preview-next" onClick={() => go(1)} className="absolute right-2 top-1/2 -translate-y-1/2 bg-white/90 rounded-full p-1"><ChevronRight size={18} /></button>}
         <span className="absolute top-3 right-3 bg-black/70 text-white text-xs px-2 py-0.5 rounded-full font-mono" data-testid="preview-counter">{i + 1}/{urls.length}</span>

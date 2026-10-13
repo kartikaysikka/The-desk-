@@ -1,0 +1,41 @@
+{
+  "summary": "Full backend+frontend testing of News Desk portal. 17/17 pytest tests passed (auth, settings masking, posts CRUD, render URL public access, edit re-render, approve without IG creds -> 400, approve with fake IG creds -> 502+status=failed, reject, delete, validation). Fixed critical CORS/env mismatch: backend FRONTEND_URL and PUBLIC_BASE_URL pointed to a different hostname than the actual frontend origin, which was causing 'Disallowed CORS origin' on every /api call from the UI. Updated backend/.env to the correct frontend origin and restarted backend. Frontend playwright flow then validated: login error path, successful login, dashboard filters, settings save + IG status badge, post card -> review page with Instagram-style carousel preview (prev/next counter 1/4 -> 2/4), all review controls present, approve-without-creds toast ('Connect Instagram in Settings first'), new-story form, logout. One sample pending_review post was present in DB and was used throughout review flow.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/auth/login", "issue": "Lockout counter is incremented AFTER checking locked_until>now, so once locked, subsequent attempts never increment but also receive 401 when state transitions. Minor edge case: lockout window silently re-opens on next failed attempt rather than being enforced strictly for 15 mins (count check uses >=5 AND locked_until>now; once locked_until passes, 5 fresh failures are required again, which is fine, but the UX message is only shown when both conditions true)."},
+      {"endpoint": "/api/posts (PUT)", "issue": "edit_post always resets status to pending_review even when editing a 'failed' or 'rejected' post. Acceptable but worth confirming product intent."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Settings", "issues": ["Minor: 'Leave blank to keep current token' only works because backend ignores blank; good UX but could show inline note."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Verify PUBLIC_BASE_URL / FRONTEND_URL stay aligned with the actual deployed frontend origin in /app/backend/.env (I set both to https://news-carousel-3.preview.emergentagent.com). PUBLIC_BASE_URL is critical because Instagram Graph API fetches rendered image URLs from it — if it ever gets stale, publishing will fail."
+  ],
+  "critical_code_review_comments": [
+    "server.py is single-file ~475 lines; still readable but near the 700-line split threshold. Consider splitting auth/settings/posts/instagram into routers.",
+    "In approve(): status set to 'publishing' then on HTTPException set to 'failed' with error. Good. But non-HTTPException (e.g. unexpected ValueError in publish_to_instagram) would leave status stuck at 'publishing'. Wrap with broad except Exception to also mark failed.",
+    "render_post reads all source images into memory and renders synchronously inside threadpool — for 10 uploads this is heavy. Acceptable for MVP.",
+    "CORS allow_origins uses only FRONTEND_URL env; if that env is wrong the UI breaks everywhere. Consider also respecting CORS_ORIGINS env (present but unused) or allowing a list."
+  ],
+  "updated_files": [
+    "/app/backend/.env (fixed PUBLIC_BASE_URL and FRONTEND_URL to match actual frontend origin)",
+    "/app/backend/tests/backend_test.py (new)"
+  ],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "100% of attempted flows"},
+  "test_credentials": "admin@newsdesk.com / NewsDesk@2026",
+  "seed_data_creation": "Tests create a transient post via POST /api/posts (one AI generation call — within the ~3 call budget), edit it (no AI call), attempt approve (2 calls, both fail as expected), reject, delete. Net AI calls in this run: 1. Pre-existing sample post was left untouched.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend .env PUBLIC_BASE_URL/FRONTEND_URL now point to https://news-carousel-3.preview.emergentagent.com. If the preview URL ever changes, update both. All data-testids match the spec. Real Instagram publish path cannot be tested; only error branches validated. backend_test.py is pytest-based and reusable; it does 1 AI generation call per full run — mind credit budget.",
+  "rca_of_the_issue": "CORS 'Disallowed CORS origin' on /api/auth/login OPTIONS from the real frontend origin. RCA: FastAPI CORSMiddleware is configured with allow_origins=[os.environ['FRONTEND_URL']]. Backend .env had FRONTEND_URL set to a stale/different preview hostname than REACT_APP_BACKEND_URL used by the frontend. Fix: aligned both PUBLIC_BASE_URL and FRONTEND_URL in backend/.env with the actual frontend origin and restarted backend. Verified: OPTIONS now returns 200 with correct Access-Control-Allow-Origin header, and full UI auth + API flow works end-to-end."
+}

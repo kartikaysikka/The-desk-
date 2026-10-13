@@ -33,7 +33,6 @@ client = AsyncIOMotorClient(os.environ["MONGO_URL"])
 db = client[os.environ["DB_NAME"]]
 EMERGENT_KEY = os.environ["EMERGENT_LLM_KEY"]
 JWT_SECRET = os.environ["JWT_SECRET"]
-PUBLIC_BASE_URL = os.environ["PUBLIC_BASE_URL"].rstrip("/")
 GRAPH = "https://graph.facebook.com/v21.0"
 APP_NAME = "newsdesk"
 
@@ -83,8 +82,13 @@ async def save_file(data: bytes, ext: str, content_type: str, kind: str) -> str:
     return res["path"]
 
 
-def media_url(path):
-    return f"{PUBLIC_BASE_URL}/api/media/{path}"
+def media_url(path, base=""):
+    return f"{base}/api/media/{path}"
+
+
+def public_base(request: Request):
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    return f"https://{host}"
 
 
 # ---------- auth ----------
@@ -408,7 +412,7 @@ async def publish_to_instagram(urls, caption, ig_id, token):
 
 
 @api.post("/posts/{pid}/approve")
-async def approve(pid: str, user=Depends(current_user)):
+async def approve(pid: str, request: Request, user=Depends(current_user)):
     post = await load_post(pid)
     if post["status"] == "published":
         raise HTTPException(400, "Already published")
@@ -417,10 +421,13 @@ async def approve(pid: str, user=Depends(current_user)):
         raise HTTPException(400, "Connect Instagram in Settings first (IG User ID + access token)")
     await db.posts.update_one({"id": pid}, {"$set": {"status": "publishing", "approved_at": now_iso()}})
     try:
-        media_id, permalink = await publish_to_instagram([media_url(p) for p in post["rendered_images"]], full_caption(post, s), s["ig_user_id"], s["ig_access_token"])
+        media_id, permalink = await publish_to_instagram([media_url(p, public_base(request)) for p in post["rendered_images"]], full_caption(post, s), s["ig_user_id"], s["ig_access_token"])
     except HTTPException as e:
         await db.posts.update_one({"id": pid}, {"$set": {"status": "failed", "error": e.detail}})
         raise
+    except Exception as e:
+        await db.posts.update_one({"id": pid}, {"$set": {"status": "failed", "error": str(e)}})
+        raise HTTPException(502, f"Publishing failed: {e}")
     await db.posts.update_one({"id": pid}, {"$set": {"status": "published", "instagram_media_id": media_id, "permalink": permalink, "published_at": now_iso(), "error": None}})
     return present(await load_post(pid))
 
@@ -444,7 +451,7 @@ app.include_router(api)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=[os.environ["FRONTEND_URL"]],
+    allow_origins=[o.strip() for o in os.environ["FRONTEND_URL"].split(",")],
     allow_methods=["*"],
     allow_headers=["*"],
 )
