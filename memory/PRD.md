@@ -17,6 +17,10 @@ Gemini 3 Flash (Emergent key) · Template-based Pillow overlay (no AI images) ·
 - Upload → 1 AI call → render → review → edit/re-render (no AI) → rewrite with AI → approve & publish (single/carousel) → status/permalink
 - Tested: 17/17 backend tests, frontend flows pass. Real IG publish untested (no real token).
 
+## Iteration 2 (2026-06)
+- Templates: 'Black And White Informative' (4:5) and 'Standard' (1:1, ANI-style photo + dark panel, red line, centered headline, red chevrons)
+- Channel name ANI, no @handles, ANI logo top-right on every slide; template picker on New Story + switch on Review (re-render, no AI)
+
 ## Backlog
 - P1: Hindi/regional language fonts; multiple template styles; token expiry reminder
 - P2: Scheduled publishing; post analytics

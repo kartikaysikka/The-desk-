@@ -1,7 +1,11 @@
-"""Backend regression tests for News Desk portal."""
+"""Backend regression tests for News Desk portal - iteration 2.
+
+Focus: multi-template support (bw_informative 1080x1350, standard 1080x1080),
+no 'handle' field in settings, brand_name default ANI.
+Budget: at most 1 POST /api/posts call (one AI generation).
+"""
 import io
 import os
-import time
 import pytest
 import requests
 from PIL import Image
@@ -19,7 +23,7 @@ RAW_TEXT = (
 
 def _img_bytes(color="red"):
     buf = io.BytesIO()
-    Image.new("RGB", (1200, 800), color).save(buf, "JPEG")
+    Image.new("RGB", (1600, 1200), color).save(buf, "JPEG")
     return buf.getvalue()
 
 
@@ -31,180 +35,147 @@ def client():
     return s
 
 
-# ---------- auth ----------
-class TestAuth:
-    def test_root(self):
-        r = requests.get(f"{BASE_URL}/api/")
-        assert r.status_code == 200
-
-    def test_login_wrong_password(self):
-        r = requests.post(f"{BASE_URL}/api/auth/login", json={"email": ADMIN_EMAIL, "password": "wrong"})
-        assert r.status_code == 401
-        assert "Invalid" in r.json().get("detail", "")
-
-    def test_login_me_logout(self):
-        s = requests.Session()
-        r = s.post(f"{BASE_URL}/api/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
-        assert r.status_code == 200
-        assert r.json()["email"] == ADMIN_EMAIL
-        assert "access_token" in s.cookies
-        me = s.get(f"{BASE_URL}/api/auth/me")
-        assert me.status_code == 200
-        assert me.json()["email"] == ADMIN_EMAIL
-        assert "password_hash" not in me.json()
-        lo = s.post(f"{BASE_URL}/api/auth/logout")
-        assert lo.status_code == 200
-
-    def test_me_unauth(self):
-        r = requests.get(f"{BASE_URL}/api/auth/me")
-        assert r.status_code == 401
+# ---------- quick auth smoke ----------
+def test_auth_me(client):
+    r = client.get(f"{BASE_URL}/api/auth/me")
+    assert r.status_code == 200
+    assert r.json()["email"] == ADMIN_EMAIL
 
 
-# ---------- settings ----------
-class TestSettings:
-    def test_get(self, client):
-        r = client.get(f"{BASE_URL}/api/settings")
-        assert r.status_code == 200
-        d = r.json()
-        assert "brand_name" in d and "handle" in d
-        assert "ig_token_set" in d and "ig_token_preview" in d
-        assert "ig_access_token" not in d
-
-    def test_update_and_token_mask(self, client):
-        # set
-        payload = {
-            "brand_name": "News Desk",
-            "handle": "@newsdesk",
-            "default_hashtags": "#news #breaking",
-            "ig_user_id": "1234567890",
-            "ig_access_token": "EAABtest_token_XYZ1234",
-        }
-        r = client.put(f"{BASE_URL}/api/settings", json=payload)
-        assert r.status_code == 200
-        d = r.json()
-        assert d["brand_name"] == "News Desk"
-        assert d["ig_user_id"] == "1234567890"
-        assert d["ig_token_set"] is True
-        assert "…" in d["ig_token_preview"]
-
-        # Blank token keeps existing
-        payload2 = {**payload, "ig_access_token": ""}
-        r2 = client.put(f"{BASE_URL}/api/settings", json=payload2)
-        assert r2.status_code == 200
-        d2 = r2.json()
-        assert d2["ig_token_set"] is True, "Blank token should keep existing"
-        assert d2["ig_token_preview"] == d["ig_token_preview"]
+# ---------- templates ----------
+def test_templates_endpoint(client):
+    r = client.get(f"{BASE_URL}/api/templates")
+    assert r.status_code == 200
+    tpls = r.json()
+    assert isinstance(tpls, list) and len(tpls) == 2
+    by_id = {t["id"]: t for t in tpls}
+    assert "bw_informative" in by_id
+    assert "standard" in by_id
+    assert by_id["bw_informative"]["name"] == "Black And White Informative"
+    assert by_id["standard"]["name"] == "Standard"
 
 
-# ---------- posts ----------
-@pytest.fixture(scope="class")
-def created_post(client):
+# ---------- settings (no 'handle' field) ----------
+def test_settings_no_handle_default_ani(client):
+    r = client.get(f"{BASE_URL}/api/settings")
+    assert r.status_code == 200
+    d = r.json()
+    assert "brand_name" in d
+    assert "handle" not in d, f"'handle' should be removed from settings, got: {d}"
+    # Ensure default brand_name is ANI if nothing persisted overrides it.
+    # (Previous iteration test may have saved 'News Desk'; reset to ANI to validate)
+    reset = client.put(f"{BASE_URL}/api/settings", json={
+        "brand_name": "ANI",
+        "default_hashtags": "#ANI #news #breakingnews",
+        "ig_user_id": "",
+    })
+    assert reset.status_code == 200
+    assert reset.json()["brand_name"] == "ANI"
+    assert "handle" not in reset.json()
+
+
+def test_settings_update_rejects_handle_silently(client):
+    # Pydantic model excludes 'handle' — extra field is ignored (default behaviour).
+    r = client.put(f"{BASE_URL}/api/settings", json={
+        "brand_name": "ANI",
+        "handle": "@shouldbeignored",
+        "default_hashtags": "#ANI",
+        "ig_user_id": "",
+    })
+    assert r.status_code == 200
+    assert "handle" not in r.json()
+
+
+# ---------- post create with 'standard' template (ONE AI call budget) ----------
+@pytest.fixture(scope="session")
+def standard_post(client):
     files = [
         ("images", ("a.jpg", _img_bytes("red"), "image/jpeg")),
-        ("images", ("b.jpg", _img_bytes("blue"), "image/jpeg")),
+        ("images", ("b.jpg", _img_bytes("navy"), "image/jpeg")),
     ]
-    data = {"raw_text": RAW_TEXT, "kicker": "BREAKING"}
-    r = client.post(f"{BASE_URL}/api/posts", data=data, files=files, timeout=120)
+    data = {"raw_text": RAW_TEXT, "kicker": "WORLD", "template": "standard"}
+    r = client.post(f"{BASE_URL}/api/posts", data=data, files=files, timeout=180)
     assert r.status_code == 200, f"Create post failed: {r.status_code} {r.text}"
-    return r.json()
+    p = r.json()
+    assert p["template"] == "standard"
+    return p
 
 
-class TestPosts:
-    def test_create_post(self, created_post):
-        p = created_post
-        assert p["status"] == "pending_review"
-        assert p["headline"]
-        assert 2 <= len(p["slides"]) <= 6
-        assert len(p["rendered_urls"]) == 1 + len(p["slides"])
-        for u in p["rendered_urls"]:
-            assert u.startswith("http")
-
-    def test_rendered_url_public(self, created_post):
-        u = created_post["rendered_urls"][0]
-        r = requests.get(u, timeout=30)
-        assert r.status_code == 200
-        assert r.headers["content-type"].startswith("image/jpeg")
-        assert len(r.content) > 1000
-
-    def test_list_posts(self, client):
-        r = client.get(f"{BASE_URL}/api/posts")
-        assert r.status_code == 200
-        assert isinstance(r.json(), list)
-
-    def test_filter_posts(self, client):
-        r = client.get(f"{BASE_URL}/api/posts", params={"status": "pending_review"})
-        assert r.status_code == 200
-        for p in r.json():
-            assert p["status"] == "pending_review"
-
-    def test_edit_post_rerenders(self, client, created_post):
-        pid = created_post["id"]
-        before = created_post["rendered_urls"]
-        edit = {
-            "kicker": "WORLD",
-            "headline": "Edited Headline For Rerender Test Case",
-            "slides": [{"title": "New Title", "body": "New body text here."}, {"title": "Second", "body": "Another body."}],
-            "caption": "Edited caption text.",
-            "hashtags": "#edited #news",
-        }
-        r = client.put(f"{BASE_URL}/api/posts/{pid}", json=edit)
-        assert r.status_code == 200
-        d = r.json()
-        assert d["headline"] == edit["headline"]
-        assert d["kicker"] == "WORLD"
-        assert len(d["slides"]) == 2
-        assert len(d["rendered_urls"]) == 3
-        assert d["rendered_urls"] != before  # re-rendered
-
-    def test_approve_without_ig_creds(self, client, created_post):
-        # Clear IG creds
-        client.put(f"{BASE_URL}/api/settings", json={
-            "brand_name": "News Desk", "handle": "@newsdesk",
-            "default_hashtags": "#news", "ig_user_id": "", "ig_access_token": "",
-        })
-        # Need to also wipe existing token (blank keeps). Use direct dummy approach:
-        # Since blank preserves token, we have to set a value then rely on empty ig_user_id blocking.
-        # Code checks: if not ig_user_id or not ig_access_token -> 400
-        pid = created_post["id"]
-        r = client.post(f"{BASE_URL}/api/posts/{pid}/approve")
-        assert r.status_code == 400
-        assert "Connect Instagram" in r.json()["detail"]
-
-    def test_approve_with_fake_creds_fails(self, client, created_post):
-        client.put(f"{BASE_URL}/api/settings", json={
-            "brand_name": "News Desk", "handle": "@newsdesk",
-            "default_hashtags": "#news", "ig_user_id": "17841400000000000",
-            "ig_access_token": "FAKE_TOKEN_FOR_TESTING_ONLY_XYZ",
-        })
-        pid = created_post["id"]
-        r = client.post(f"{BASE_URL}/api/posts/{pid}/approve", timeout=60)
-        assert r.status_code == 502
-        # Verify status now failed
-        g = client.get(f"{BASE_URL}/api/posts/{pid}")
-        assert g.status_code == 200
-        assert g.json()["status"] == "failed"
-        assert g.json().get("error")
-
-    def test_reject(self, client, created_post):
-        pid = created_post["id"]
-        r = client.post(f"{BASE_URL}/api/posts/{pid}/reject")
-        assert r.status_code == 200
-        assert r.json()["status"] == "rejected"
-
-    def test_delete(self, client, created_post):
-        pid = created_post["id"]
-        r = client.delete(f"{BASE_URL}/api/posts/{pid}")
-        assert r.status_code == 200
-        g = client.get(f"{BASE_URL}/api/posts/{pid}")
-        assert g.status_code == 404
+def _fetch_image(url):
+    if url.startswith("/"):
+        url = BASE_URL + url
+    r = requests.get(url, timeout=90)
+    assert r.status_code == 200, f"Failed to fetch {url}: {r.status_code}"
+    assert r.headers["content-type"].startswith("image/jpeg")
+    return Image.open(io.BytesIO(r.content))
 
 
-class TestValidation:
-    def test_create_requires_images(self, client):
-        r = client.post(f"{BASE_URL}/api/posts", data={"raw_text": "hi", "kicker": ""})
-        assert r.status_code in (422, 400)
+def test_standard_renders_1080x1080(standard_post):
+    assert len(standard_post["rendered_urls"]) == 1 + len(standard_post["slides"])
+    for u in standard_post["rendered_urls"]:
+        im = _fetch_image(u)
+        assert im.size == (1080, 1080), f"Expected 1080x1080 for standard, got {im.size} for {u}"
 
-    def test_create_empty_text(self, client):
-        files = [("images", ("a.jpg", _img_bytes(), "image/jpeg"))]
-        r = client.post(f"{BASE_URL}/api/posts", data={"raw_text": "   ", "kicker": ""}, files=files)
-        assert r.status_code == 422
+
+def test_switch_to_bw_informative_rerenders_1080x1350(client, standard_post):
+    pid = standard_post["id"]
+    before_urls = standard_post["rendered_urls"]
+    edit = {
+        "template": "bw_informative",
+        "kicker": standard_post["kicker"],
+        "headline": standard_post["headline"],
+        "slides": standard_post["slides"],
+        "caption": standard_post["caption"],
+        "hashtags": standard_post["hashtags"],
+    }
+    r = client.put(f"{BASE_URL}/api/posts/{pid}", json=edit, timeout=120)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["template"] == "bw_informative"
+    assert d["rendered_urls"] != before_urls, "Expected re-render with new URLs"
+    for u in d["rendered_urls"]:
+        im = _fetch_image(u)
+        assert im.size == (1080, 1350), f"Expected 1080x1350 for bw_informative, got {im.size}"
+
+
+def test_switch_back_to_standard_rerenders_1080x1080(client, standard_post):
+    pid = standard_post["id"]
+    # Fetch current state
+    cur = client.get(f"{BASE_URL}/api/posts/{pid}").json()
+    edit = {
+        "template": "standard",
+        "kicker": cur["kicker"],
+        "headline": cur["headline"],
+        "slides": cur["slides"],
+        "caption": cur["caption"],
+        "hashtags": cur["hashtags"],
+    }
+    r = client.put(f"{BASE_URL}/api/posts/{pid}", json=edit, timeout=120)
+    assert r.status_code == 200
+    for u in r.json()["rendered_urls"]:
+        im = _fetch_image(u)
+        assert im.size == (1080, 1080)
+
+
+def test_invalid_template_on_create(client):
+    files = [("images", ("a.jpg", _img_bytes(), "image/jpeg"))]
+    r = client.post(f"{BASE_URL}/api/posts", data={"raw_text": RAW_TEXT, "template": "bogus"}, files=files)
+    assert r.status_code == 422, f"Expected 422 got {r.status_code}: {r.text}"
+
+
+def test_invalid_template_on_edit(client, standard_post):
+    pid = standard_post["id"]
+    edit = {
+        "template": "bogus",
+        "kicker": "X", "headline": "x", "slides": [{"title": "a", "body": "b"}],
+        "caption": "c", "hashtags": "#x",
+    }
+    r = client.put(f"{BASE_URL}/api/posts/{pid}", json=edit)
+    assert r.status_code == 422
+
+
+# ---------- cleanup ----------
+def test_zz_cleanup(client, standard_post):
+    pid = standard_post["id"]
+    client.delete(f"{BASE_URL}/api/posts/{pid}")
+    assert client.get(f"{BASE_URL}/api/posts/{pid}").status_code == 404

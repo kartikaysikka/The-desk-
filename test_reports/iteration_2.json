@@ -1,0 +1,24 @@
+{
+  "summary": "Iteration 2: Multi-template support (bw_informative 1080x1350 + standard 1080x1080), channel name ANI, no '@' handle. All 10 backend pytest tests passed (templates list, settings-no-handle, create standard post with PIL dimension verification, PUT template switch re-renders at correct dimensions both directions, invalid template -> 422, cleanup). Only 1 POST /api/posts call executed (AI budget respected). Frontend Playwright flow validated: login, Settings page has no handle field and no '@' anywhere, brand_name default ANI, New Story page has both new-template-bw_informative and new-template-standard buttons with active state, Dashboard shows template label on card ('STANDARD · 4 SLIDES'), Review page has template-option-bw_informative and template-option-standard, template-changed-hint appears on switch, SlidePreview renders a 1080x1080 image uncropped (natural 1080x1080, box 456x456 square), preview caption begins with 'ANI ' (no '@'), ANI logo visible in top-right corner of rendered slide.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "render.py std_slide: 'oswald' variable font Bold weight is set via set_variation_by_name — Oswald.ttf must be a variable font with 'Bold' name; verified working at runtime.",
+    "server.py edit_post: SettingsIn no longer has 'handle' field; PostEdit requires 'template' with default 'bw_informative'. Validation on unknown template returns 422 correctly.",
+    "Review.jsx preview uses w-full h-auto so both 1:1 and 4:5 render uncropped — good.",
+    "Dashboard card template label implemented with inline ternary (p.template === 'standard' ? 'Standard' : 'B&W'); won't scale if more templates added — low priority."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (10/10)", "frontend": "100% of attempted flows"},
+  "test_credentials": "admin@newsdesk.com / NewsDesk@2026",
+  "seed_data_creation": "One post created via POST /api/posts (template=standard) during pytest run; deleted at end. Pre-existing 'standard' post in DB (Jantar Mantar) was used read-only by frontend flow.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend test file is pytest-based and reusable. Note: /api/media fetch can be slow (storage proxy); use timeout>=60s. Rendered URLs returned by API are relative paths like '/api/media/...' — prefix with REACT_APP_BACKEND_URL to fetch. Previous iteration note that URLs 'start with http' was incorrect — they are relative; frontend SlidePreview prefixes with REACT_APP_BACKEND_URL.",
+  "rca_of_the_issue": "N/A — no failures. Initial backend run surfaced two self-inflicted test issues: (1) rendered URLs are relative paths, not absolute; (2) /api/media fetch exceeded 30s default. Fixed in test file by prefixing BASE_URL and bumping timeout to 90s."
+}
