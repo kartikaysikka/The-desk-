@@ -2,13 +2,14 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ImagePlus, X, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { api, errMsg } from "@/lib/api";
+import { api, errMsg, TEMPLATES } from "@/lib/api";
 
 export default function NewPost() {
   const nav = useNavigate();
   const [files, setFiles] = useState([]);
   const [raw, setRaw] = useState("");
   const [kicker, setKicker] = useState("");
+  const [template, setTemplate] = useState("bw_informative");
   const [busy, setBusy] = useState(false);
 
   const addFiles = (list) => setFiles((f) => [...f, ...Array.from(list).filter((x) => x.type.startsWith("image/"))].slice(0, 10));
@@ -20,6 +21,7 @@ export default function NewPost() {
     const fd = new FormData();
     fd.append("raw_text", raw);
     fd.append("kicker", kicker);
+    fd.append("template", template);
     files.forEach((f) => fd.append("images", f));
     try {
       const { data } = await api.post("/posts", fd);
@@ -58,6 +60,18 @@ export default function NewPost() {
         </div>
         <textarea data-testid="raw-text-input" className="nd-textarea min-h-[300px]" required value={raw} onChange={(e) => setRaw(e.target.value)}
           placeholder="e.g. Fire at central market around 4pm today, 3 shops gutted, no casualties, fire brigade took 2 hrs, cause suspected short circuit…" />
+        <div>
+          <div className="nd-label mb-3">Step 03 — Template</div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            {TEMPLATES.map((t) => (
+              <button type="button" key={t.id} data-testid={`new-template-${t.id}`} onClick={() => setTemplate(t.id)}
+                className={`text-left p-4 border-2 border-black transition-colors ${template === t.id ? "bg-black text-white" : "hover:bg-black/5"}`}>
+                <div className="font-display text-xl">{t.name.toUpperCase()}</div>
+                <div className={`font-mono text-[11px] mt-1 ${template === t.id ? "text-white/70" : "text-[#6b6b66]"}`}>{t.hint}</div>
+              </button>
+            ))}
+          </div>
+        </div>
         <div>
           <label className="nd-label">Label (optional)</label>
           <input data-testid="kicker-input" className="nd-input font-mono uppercase" value={kicker} onChange={(e) => setKicker(e.target.value)} placeholder="BREAKING / POLITICS / SPORTS" />

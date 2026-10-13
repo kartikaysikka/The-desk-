@@ -8,12 +8,12 @@ const FILTERS = [["", "All"], ["pending_review", "Awaiting"], ["published", "Pub
 const PostCard = ({ p, i }) => (
   <Link to={`/posts/${p.id}`} data-testid={`post-card-${p.id}`} className="nd-card nd-rise block border-2 border-black bg-white" style={{ animationDelay: `${i * 50}ms` }}>
     <div className="aspect-[4/5] bg-black overflow-hidden">
-      <img src={`${process.env.REACT_APP_BACKEND_URL}${p.rendered_urls[0]}`} alt={p.headline} className="w-full h-full object-cover" loading="lazy" />
+      <img src={`${process.env.REACT_APP_BACKEND_URL}${p.rendered_urls[0]}`} alt={p.headline} className="w-full h-full object-contain" loading="lazy" />
     </div>
     <div className="p-4 border-t-2 border-black">
       <div className="flex justify-between font-mono text-[11px] uppercase tracking-wider">
         <span data-testid={`post-status-${p.id}`} className={p.status === "pending_review" ? "bg-black text-white px-1.5" : ""}>{STATUS_LABEL[p.status]}</span>
-        <span className="text-[#6b6b66]">{p.rendered_urls.length} slides</span>
+        <span className="text-[#6b6b66]">{p.template === "standard" ? "Standard" : "B&W"} · {p.rendered_urls.length} slides</span>
       </div>
       <h3 className="font-serif font-semibold text-lg leading-snug mt-2 line-clamp-2">{p.headline}</h3>
     </div>

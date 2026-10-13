@@ -13,6 +13,11 @@ export function errMsg(e) {
   return d.msg || String(d);
 }
 
+export const TEMPLATES = [
+  { id: "bw_informative", name: "Black And White Informative", hint: "Full-bleed cover, fact slides with photo on top (4:5)" },
+  { id: "standard", name: "Standard", hint: "Photo on top, dark headline panel with red accents (1:1)" },
+];
+
 export const STATUS_LABEL = {
   pending_review: "Awaiting approval",
   publishing: "Publishing",

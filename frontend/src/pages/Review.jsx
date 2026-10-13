@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Check, RefreshCw, Save, Trash2, X, ExternalLink, Plus } from "lucide-react";
 import { toast } from "sonner";
-import { api, errMsg, STATUS_LABEL } from "@/lib/api";
+import { api, errMsg, STATUS_LABEL, TEMPLATES } from "@/lib/api";
 import { SlidePreview } from "@/components/SlidePreview";
 
 const Field = ({ label, children }) => (<div><label className="nd-label">{label}</label>{children}</div>);
@@ -15,7 +15,7 @@ export default function Review() {
   const [settings, setSettings] = useState({});
   const [busy, setBusy] = useState("");
 
-  const load = (p) => { setPost(p); setForm({ kicker: p.kicker, headline: p.headline, slides: p.slides, caption: p.caption, hashtags: p.hashtags }); };
+  const load = (p) => { setPost(p); setForm({ template: p.template || "bw_informative", kicker: p.kicker, headline: p.headline, slides: p.slides, caption: p.caption, hashtags: p.hashtags }); };
 
   useEffect(() => {
     api.get(`/posts/${id}`).then((r) => load(r.data)).catch(() => nav("/"));
@@ -37,7 +37,7 @@ export default function Review() {
   return (
     <div className="grid lg:grid-cols-[minmax(0,460px)_1fr] gap-12 items-start">
       <div className="lg:sticky lg:top-8 space-y-4 nd-rise">
-        <SlidePreview key={post.rendered_urls.join()} urls={post.rendered_urls} handle={settings.handle} caption={fullCaption} />
+        <SlidePreview key={post.rendered_urls.join()} urls={post.rendered_urls} handle={settings.brand_name} caption={fullCaption} />
         <div className="font-mono text-xs uppercase tracking-widest" data-testid="review-status">Status: <b>{STATUS_LABEL[post.status]}</b></div>
         {post.error && <p className="font-mono text-xs border-l-4 border-black pl-3" data-testid="publish-error">{post.error}</p>}
         {post.permalink && <a href={post.permalink} target="_blank" rel="noreferrer" className="nd-btn ghost" data-testid="view-on-instagram"><ExternalLink size={14} /> View on Instagram</a>}
@@ -63,6 +63,15 @@ export default function Review() {
         </div>
 
         <fieldset disabled={locked} className="space-y-8">
+          <Field label="Template">
+            <div className="flex flex-wrap gap-2 mt-2">
+              {TEMPLATES.map((t) => (
+                <button type="button" key={t.id} data-testid={`template-option-${t.id}`} onClick={() => setForm({ ...form, template: t.id })}
+                  className={`font-mono text-xs uppercase tracking-widest px-3 py-2 border-2 border-black transition-colors ${form.template === t.id ? "bg-black text-white" : "hover:bg-black/5"}`}>{t.name}</button>
+              ))}
+            </div>
+            {form.template !== (post.template || "bw_informative") && <p className="font-mono text-xs mt-2" data-testid="template-changed-hint">Click "Save &amp; re-render" to apply the new template.</p>}
+          </Field>
           <div className="grid md:grid-cols-[180px_1fr] gap-6">
             <Field label="Label"><input data-testid="edit-kicker" className="nd-input font-mono uppercase" value={form.kicker} onChange={(e) => setForm({ ...form, kicker: e.target.value })} /></Field>
             <Field label="Cover headline"><input data-testid="edit-headline" className="nd-input font-display text-2xl" value={form.headline} onChange={(e) => setForm({ ...form, headline: e.target.value })} /></Field>

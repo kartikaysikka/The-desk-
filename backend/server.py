@@ -24,7 +24,7 @@ from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 
-from render import render_cover, render_detail
+from render import TEMPLATES
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -180,7 +180,7 @@ async def refresh(request: Request, response: Response):
 
 
 # ---------- settings ----------
-DEFAULT_SETTINGS = {"brand_name": "News Desk", "handle": "@newsdesk", "default_hashtags": "#news #breakingnews", "ig_user_id": "", "ig_access_token": ""}
+DEFAULT_SETTINGS = {"brand_name": "ANI", "default_hashtags": "#ANI #news #breakingnews", "ig_user_id": "", "ig_access_token": ""}
 
 
 async def get_settings():
@@ -190,7 +190,6 @@ async def get_settings():
 
 class SettingsIn(BaseModel):
     brand_name: str
-    handle: str
     default_hashtags: str = ""
     ig_user_id: str = ""
     ig_access_token: Optional[str] = None
@@ -216,7 +215,7 @@ async def update_settings(body: SettingsIn, user=Depends(current_user)):
 
 # ---------- AI ----------
 SYSTEM_PROMPT = """You are the senior editor of an Instagram news channel. From raw notes you write sharp, factual carousel posts.
-Rules: never invent or speculate on facts not present in the notes (no "still being assessed" style filler); neutral, punchy news tone; write in English.
+Rules: never mention any social media @handles; never invent or speculate on facts not present in the notes (no "still being assessed" style filler); neutral, punchy news tone; write in English.
 Return ONLY valid JSON (no markdown) with this exact shape:
 {"kicker": "1-2 word label e.g. BREAKING, POLITICS, WORLD, SPORTS, BUSINESS",
  "headline": "cover headline, max 12 words, strong and clear",
@@ -253,13 +252,14 @@ async def ai_generate(raw_text: str, kicker_hint: str = ""):
 # ---------- render ----------
 async def render_post(post: dict):
     s = await get_settings()
+    tpl = TEMPLATES.get(post.get("template"), TEMPLATES["bw_informative"])
     photos = [await run_in_threadpool(get_object, p) for p in post["source_images"]]
     date_str = datetime.now(timezone.utc).strftime("%d %b %Y").upper()
     total = 1 + len(post["slides"])
-    out = [await run_in_threadpool(render_cover, photos[0], post["headline"], post["kicker"], s["brand_name"], s["handle"], date_str)]
+    out = [await run_in_threadpool(tpl["cover"], photos[0], post["headline"], post["kicker"], s["brand_name"], date_str)]
     for i, sl in enumerate(post["slides"]):
-        ph = photos[(i + 1) % len(photos)] if len(photos) > 1 else photos[0]
-        out.append(await run_in_threadpool(render_detail, ph, sl["title"], sl["body"], s["brand_name"], s["handle"], i + 2, total))
+        ph = photos[(i + 1) % len(photos)]
+        out.append(await run_in_threadpool(tpl["detail"], ph, sl["title"], sl["body"], s["brand_name"], i + 2, total))
     return [await save_file(b, "jpg", "image/jpeg", "rendered") for b in out]
 
 
@@ -278,9 +278,11 @@ def present(post):
 
 # ---------- posts ----------
 @api.post("/posts")
-async def create_post(raw_text: str = Form(...), kicker: str = Form(""), images: List[UploadFile] = File(...), user=Depends(current_user)):
+async def create_post(raw_text: str = Form(...), kicker: str = Form(""), template: str = Form("bw_informative"), images: List[UploadFile] = File(...), user=Depends(current_user)):
     if not raw_text.strip():
         raise HTTPException(422, "Raw text is required")
+    if template not in TEMPLATES:
+        raise HTTPException(422, "Unknown template")
     if not images or len(images) > 10:
         raise HTTPException(422, "Upload 1 to 10 images")
     paths = []
@@ -294,7 +296,7 @@ async def create_post(raw_text: str = Form(...), kicker: str = Form(""), images:
     except Exception as e:
         logger.exception("AI generation failed")
         raise HTTPException(502, f"AI generation failed: {e}")
-    post = {"id": str(uuid.uuid4()), "raw_text": raw_text, "source_images": paths, **gen, "status": "pending_review", "created_at": now_iso(), "updated_at": now_iso()}
+    post = {"id": str(uuid.uuid4()), "raw_text": raw_text, "source_images": paths, "template": template, **gen, "status": "pending_review", "created_at": now_iso(), "updated_at": now_iso()}
     post["rendered_images"] = await render_post(post)
     await db.posts.insert_one(dict(post))
     return present(post)
@@ -325,6 +327,7 @@ class SlideIn(BaseModel):
 
 
 class PostEdit(BaseModel):
+    template: str = "bw_informative"
     kicker: str
     headline: str
     slides: List[SlideIn]
@@ -338,6 +341,8 @@ async def edit_post(pid: str, body: PostEdit, user=Depends(current_user)):
     if post["status"] == "published":
         raise HTTPException(400, "Already published")
     upd = body.model_dump()
+    if upd["template"] not in TEMPLATES:
+        raise HTTPException(422, "Unknown template")
     post.update(upd)
     upd["rendered_images"] = await render_post(post)
     upd.update({"updated_at": now_iso(), "status": "pending_review"})
@@ -440,6 +445,11 @@ async def media(path: str):
         raise HTTPException(404, "File not found")
     data = await run_in_threadpool(get_object, path)
     return Response(content=data, media_type=rec["content_type"], headers={"Cache-Control": "public, max-age=31536000"})
+
+
+@api.get("/templates")
+async def templates():
+    return [{"id": k, "name": v["name"]} for k, v in TEMPLATES.items()]
 
 
 @api.get("/")

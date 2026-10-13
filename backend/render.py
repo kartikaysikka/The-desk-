@@ -62,26 +62,40 @@ def to_jpeg(img):
     return buf.getvalue()
 
 
-def brand_tag(draw, x, y, name):
-    f = anton(38)
-    tw = draw.textlength(name.upper(), font=f)
-    draw.rectangle([x, y, x + tw + 36, y + 62], fill="white")
-    draw.text((x + 18, y + 6), name.upper(), font=f, fill="black")
+LOGO = Image.open(FONT_DIR / "ani_logo.png").convert("RGBA")
+RED = (226, 27, 35)
 
 
-def render_cover(photo, headline, kicker, brand, handle, date_str):
+def oswald(size, weight=b"Bold"):
+    f = ImageFont.truetype(str(FONT_DIR / "Oswald.ttf"), size)
+    f.set_variation_by_name(weight)
+    return f
+
+
+def paste_logo(img, width, right, top):
+    lg = LOGO.resize((width, int(LOGO.height * width / LOGO.width)), Image.LANCZOS)
+    img.paste(lg, (img.width - right - width, top), lg)
+
+
+# ---------- Black And White Informative (1080x1350) ----------
+def bw_footer(d, brand, right_text, right_fill):
+    d.line([PAD, H - 108, W - PAD, H - 108], fill=(110, 110, 110) if right_fill != "white" else "white", width=2)
+    sf = franklin(26, b"Bold")
+    d.text((PAD, H - 88), brand.upper(), font=sf, fill="white")
+    d.text((W - PAD - d.textlength(right_text, font=sf), H - 88), right_text, font=sf, fill=right_fill)
+
+
+def bw_cover(photo, headline, kicker, brand, date_str):
     img = cover_crop(photo, W, H)
-    black = Image.new("RGB", (W, H), "black")
-    img = Image.composite(black, img, gradient(W, H, 480))
+    img = Image.composite(Image.new("RGB", (W, H), "black"), img, gradient(W, H, 480))
+    paste_logo(img, 150, PAD - 10, PAD - 20)
     d = ImageDraw.Draw(img)
-    brand_tag(d, PAD, PAD, brand)
     df = franklin(28, b"SemiBold")
-    d.text((W - PAD - d.textlength(date_str, font=df), PAD + 16), date_str, font=df, fill="white")
+    d.text((PAD, PAD + 16), date_str, font=df, fill="white")
 
     font, lines, size = fit_text(d, headline.upper(), anton, W - 2 * PAD, 5, 112, 64)
     lh = int(size * 1.12)
-    bottom = H - 150
-    y = bottom - lh * len(lines)
+    y = H - 150 - lh * len(lines)
     if kicker:
         kf = franklin(30, b"Black")
         k = kicker.upper()
@@ -90,31 +104,23 @@ def render_cover(photo, headline, kicker, brand, handle, date_str):
         d.text((PAD + 16, y - 72), k, font=kf, fill="black")
     for i, line in enumerate(lines):
         d.text((PAD, y + i * lh), line, font=font, fill="white")
-
-    d.line([PAD, H - 108, W - PAD, H - 108], fill="white", width=2)
-    sf = franklin(26, b"Bold")
-    d.text((PAD, H - 88), handle, font=sf, fill="white")
-    sw = "SWIPE FOR MORE  >>"
-    d.text((W - PAD - d.textlength(sw, font=sf), H - 88), sw, font=sf, fill="white")
+    bw_footer(d, brand, "SWIPE FOR MORE  >>", "white")
     return to_jpeg(img)
 
 
-def render_detail(photo, title, body, brand, handle, idx, total):
+def bw_detail(photo, title, body, brand, idx, total):
     img = Image.new("RGB", (W, H), "black")
     ph_h = 620
     img.paste(cover_crop(photo, W, ph_h), (0, 0))
+    paste_logo(img, 150, PAD - 10, PAD - 20)
     d = ImageDraw.Draw(img)
-    brand_tag(d, PAD, PAD, brand)
     d.rectangle([0, ph_h, W, ph_h + 10], fill="white")
-
-    nf = franklin(28, b"Bold")
-    d.text((PAD, ph_h + 56), f"{idx:02d} / {total:02d}", font=nf, fill="white")
+    d.text((PAD, ph_h + 56), f"{idx:02d} / {total:02d}", font=franklin(28, b"Bold"), fill="white")
     tf, tlines, tsize = fit_text(d, title.upper(), anton, W - 2 * PAD, 3, 76, 52)
     y = ph_h + 110
     for line in tlines:
         d.text((PAD, y), line, font=tf, fill="white")
         y += int(tsize * 1.15)
-
     y += 24
     space = H - 130 - y
     for size in range(40, 25, -2):
@@ -127,10 +133,57 @@ def render_detail(photo, title, body, brand, handle, idx, total):
             break
         d.text((PAD, y), line, font=bf, fill=(220, 220, 220))
         y += int(size * 1.45)
-
-    d.line([PAD, H - 108, W - PAD, H - 108], fill=(110, 110, 110), width=2)
-    sf = franklin(26, b"Bold")
-    d.text((PAD, H - 88), handle, font=sf, fill="white")
-    label = brand.upper()
-    d.text((W - PAD - d.textlength(label, font=sf), H - 88), label, font=sf, fill=(160, 160, 160))
+    bw_footer(d, brand, "", (160, 160, 160))
     return to_jpeg(img)
+
+
+# ---------- Standard (1080x1080, photo top + dark panel) ----------
+SW, SH, PH = 1080, 1080, 710
+
+
+def dark_panel(w, h):
+    noise = Image.effect_noise((w, h), 18).point(lambda v: 12 + v // 10)
+    return Image.merge("RGB", (noise, noise, noise))
+
+
+def std_slide(photo, text, chevrons, max_lines, start, end):
+    img = Image.new("RGB", (SW, SH), "black")
+    img.paste(cover_crop(photo, SW, PH), (0, 0))
+    img.paste(dark_panel(SW, SH - PH), (0, PH))
+    paste_logo(img, 130, 40, 36)
+    d = ImageDraw.Draw(img)
+    d.line([0, PH, SW, PH], fill=(60, 60, 60), width=2)
+
+    font, lines, size = fit_text(d, text.upper(), oswald, SW - 160, 2, 84, 56)
+    if len(wrap(d, text.upper(), font, SW - 160)) > 2:
+        font, lines, size = fit_text(d, text.upper(), oswald, SW - 160, max_lines, 54, 40)
+    lh = int(size * 1.2)
+    block = lh * len(lines)
+    chev_h = 56 if chevrons else 0
+    top = PH + max(28, (SH - PH - 30 - block - chev_h) // 2 - 6)
+    d.rectangle([SW // 2 - 240, top, SW // 2 + 240, top + 5], fill=RED)
+    y = top + 30
+    for line in lines:
+        d.text(((SW - d.textlength(line, font=font)) // 2, y), line, font=font, fill="white")
+        y += lh
+    if chevrons:
+        cy, cx = y + 14, SW // 2 - 56
+        for i in range(3):
+            x = cx + i * 48
+            d.line([(x, cy), (x + 16, cy + 16), (x, cy + 32)], fill=RED, width=9, joint="curve")
+    return to_jpeg(img)
+
+
+def std_cover(photo, headline, kicker, brand, date_str):
+    return std_slide(photo, headline, True, 3, 0, 0)
+
+
+def std_detail(photo, title, body, brand, idx, total):
+    return std_slide(photo, title, idx < total, 3, 0, 0)
+
+
+TEMPLATES = {
+    "bw_informative": {"name": "Black And White Informative", "cover": bw_cover, "detail": bw_detail},
+    "standard": {"name": "Standard", "cover": std_cover, "detail": std_detail},
+}
+

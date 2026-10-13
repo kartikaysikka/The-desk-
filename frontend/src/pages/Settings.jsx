@@ -26,10 +26,7 @@ export default function Settings() {
       <section className="space-y-6">
         <h2 className="font-display text-4xl">MASTHEAD</h2>
         <p className="font-serif text-[#6b6b66] -mt-4">Shown on every slide.</p>
-        <div className="grid md:grid-cols-2 gap-6">
-          <div><label className="nd-label">Channel name</label><input data-testid="brand-name-input" className="nd-input" value={s.brand_name} onChange={set("brand_name")} required /></div>
-          <div><label className="nd-label">Instagram handle</label><input data-testid="handle-input" className="nd-input" value={s.handle} onChange={set("handle")} required /></div>
-        </div>
+        <div><label className="nd-label">Channel name</label><input data-testid="brand-name-input" className="nd-input" value={s.brand_name} onChange={set("brand_name")} required /></div>
         <div><label className="nd-label">Always-add hashtags</label><input data-testid="default-hashtags-input" className="nd-input font-mono text-sm" value={s.default_hashtags} onChange={set("default_hashtags")} /></div>
       </section>
 
