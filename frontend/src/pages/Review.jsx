@@ -4,6 +4,7 @@ import { Check, RefreshCw, Save, Trash2, X, ExternalLink, Plus } from "lucide-re
 import { toast } from "sonner";
 import { api, errMsg, STATUS_LABEL, TEMPLATES } from "@/lib/api";
 import { SlidePreview } from "@/components/SlidePreview";
+import { PhotoPositions } from "@/components/PhotoPositions";
 
 const Field = ({ label, children }) => (<div><label className="nd-label">{label}</label>{children}</div>);
 
@@ -15,7 +16,7 @@ export default function Review() {
   const [settings, setSettings] = useState({});
   const [busy, setBusy] = useState("");
 
-  const load = (p) => { setPost(p); setForm({ template: p.template || "bw_informative", kicker: p.kicker, headline: p.headline, slides: p.slides, caption: p.caption, hashtags: p.hashtags }); };
+  const load = (p) => { setPost(p); setForm({ template: p.template || "bw_informative", photo_credit: p.photo_credit || "", photo_adjust: p.photo_adjust || [], kicker: p.kicker, headline: p.headline, slides: p.slides, caption: p.caption, hashtags: p.hashtags }); };
 
   useEffect(() => {
     api.get(`/posts/${id}`).then((r) => load(r.data)).catch(() => nav("/"));
@@ -72,6 +73,12 @@ export default function Review() {
             </div>
             {form.template !== (post.template || "bw_informative") && <p className="font-mono text-xs mt-2" data-testid="template-changed-hint">Click "Save &amp; re-render" to apply the new template.</p>}
           </Field>
+          <Field label="Photo credit (shown on every photo)">
+            <input data-testid="edit-photo-credit" className="nd-input font-mono uppercase" value={form.photo_credit} onChange={(e) => setForm({ ...form, photo_credit: e.target.value })} placeholder="ANI PICTURE SERVICE" />
+          </Field>
+          <Field label="Photo position & zoom">
+            <div className="mt-3"><PhotoPositions form={form} setForm={setForm} sources={post.source_urls} /></div>
+          </Field>
           <div className="grid md:grid-cols-[180px_1fr] gap-6">
             <Field label="Label"><input data-testid="edit-kicker" className="nd-input font-mono uppercase" value={form.kicker} onChange={(e) => setForm({ ...form, kicker: e.target.value })} /></Field>
             <Field label="Cover headline"><input data-testid="edit-headline" className="nd-input font-display text-2xl" value={form.headline} onChange={(e) => setForm({ ...form, headline: e.target.value })} /></Field>
@@ -81,7 +88,7 @@ export default function Review() {
               <div key={i} className="border-l-4 border-black pl-5 space-y-3" data-testid={`slide-editor-${i}`}>
                 <div className="flex justify-between items-center">
                   <span className="nd-label">Slide {String(i + 2).padStart(2, "0")}</span>
-                  <button type="button" data-testid={`remove-slide-${i}`} onClick={() => setForm({ ...form, slides: form.slides.filter((_, j) => j !== i) })} className="text-xs font-mono underline">remove</button>
+                  <button type="button" data-testid={`remove-slide-${i}`} onClick={() => setForm({ ...form, slides: form.slides.filter((_, j) => j !== i), photo_adjust: (form.photo_adjust || []).filter((_, j) => j !== i + 1) })} className="text-xs font-mono underline">remove</button>
                 </div>
                 <input data-testid={`edit-slide-title-${i}`} className="nd-input font-display text-xl" value={s.title} onChange={(e) => setSlide(i, "title", e.target.value)} />
                 <textarea data-testid={`edit-slide-body-${i}`} className="nd-textarea" rows={3} value={s.body} onChange={(e) => setSlide(i, "body", e.target.value)} />

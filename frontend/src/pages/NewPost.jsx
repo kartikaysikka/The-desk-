@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ImagePlus, X, Sparkles } from "lucide-react";
 import { toast } from "sonner";
@@ -10,6 +10,11 @@ export default function NewPost() {
   const [raw, setRaw] = useState("");
   const [kicker, setKicker] = useState("");
   const [template, setTemplate] = useState("bw_informative");
+  const [credit, setCredit] = useState("");
+
+  useEffect(() => {
+    api.get("/settings").then(({ data }) => { setTemplate(data.default_template || "bw_informative"); setCredit(data.default_photo_credit || ""); });
+  }, []);
   const [busy, setBusy] = useState(false);
 
   const addFiles = (list) => setFiles((f) => [...f, ...Array.from(list).filter((x) => x.type.startsWith("image/"))].slice(0, 10));
@@ -22,6 +27,7 @@ export default function NewPost() {
     fd.append("raw_text", raw);
     fd.append("kicker", kicker);
     fd.append("template", template);
+    fd.append("photo_credit", credit);
     files.forEach((f) => fd.append("images", f));
     try {
       const { data } = await api.post("/posts", fd);
@@ -71,6 +77,10 @@ export default function NewPost() {
               </button>
             ))}
           </div>
+        </div>
+        <div>
+          <label className="nd-label">Photo credit</label>
+          <input data-testid="photo-credit-input" className="nd-input font-mono uppercase" value={credit} onChange={(e) => setCredit(e.target.value)} placeholder="ANI PICTURE SERVICE" />
         </div>
         <div>
           <label className="nd-label">Label (optional)</label>

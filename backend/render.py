@@ -42,10 +42,28 @@ def fit_text(draw, text, font_fn, max_w, max_lines, start, end):
     return font, wrap(draw, text, font, max_w)[:max_lines], end
 
 
-def cover_crop(img_bytes, w, h):
+def cover_crop(img_bytes, w, h, adj=None):
+    adj = adj or {}
+    x, y = float(adj.get("x", 0.5)), float(adj.get("y", 0.4))
+    zoom = max(1.0, min(4.0, float(adj.get("zoom", 1))))
     img = Image.open(io.BytesIO(img_bytes))
     img = ImageOps.exif_transpose(img).convert("RGB")
-    return ImageOps.fit(img, (w, h), Image.LANCZOS, centering=(0.5, 0.4))
+    s = max(w / img.width, h / img.height) * zoom
+    nw, nh = max(w, round(img.width * s)), max(h, round(img.height * s))
+    img = img.resize((nw, nh), Image.LANCZOS)
+    left = round((nw - w) * min(1, max(0, x)))
+    top = round((nh - h) * min(1, max(0, y)))
+    return img.crop((left, top, left + w, top + h))
+
+
+def draw_credit(img, text, x, y):
+    if not text:
+        return
+    d = ImageDraw.Draw(img)
+    f = franklin(22, b"SemiBold")
+    t = text.upper()
+    d.text((x + 2, y + 2), t, font=f, fill=(0, 0, 0))
+    d.text((x, y), t, font=f, fill="white")
 
 
 def gradient(w, h, start_y, max_alpha=240):
@@ -85,13 +103,14 @@ def bw_footer(d, brand, right_text, right_fill):
     d.text((W - PAD - d.textlength(right_text, font=sf), H - 88), right_text, font=sf, fill=right_fill)
 
 
-def bw_cover(photo, headline, kicker, brand, date_str):
-    img = cover_crop(photo, W, H)
+def bw_cover(photo, headline, kicker, brand, date_str, credit="", adj=None):
+    img = cover_crop(photo, W, H, adj)
     img = Image.composite(Image.new("RGB", (W, H), "black"), img, gradient(W, H, 480))
     paste_logo(img, 150, PAD - 10, PAD - 20)
     d = ImageDraw.Draw(img)
     df = franklin(28, b"SemiBold")
-    d.text((PAD, PAD + 16), date_str, font=df, fill="white")
+    d.text((PAD, PAD + (40 if credit else 16)), date_str, font=df, fill="white")
+    draw_credit(img, credit, PAD, PAD)
 
     font, lines, size = fit_text(d, headline.upper(), anton, W - 2 * PAD, 5, 112, 64)
     lh = int(size * 1.12)
@@ -108,10 +127,11 @@ def bw_cover(photo, headline, kicker, brand, date_str):
     return to_jpeg(img)
 
 
-def bw_detail(photo, title, body, brand, idx, total):
+def bw_detail(photo, title, body, brand, idx, total, credit="", adj=None):
     img = Image.new("RGB", (W, H), "black")
     ph_h = 620
-    img.paste(cover_crop(photo, W, ph_h), (0, 0))
+    img.paste(cover_crop(photo, W, ph_h, adj), (0, 0))
+    draw_credit(img, credit, PAD, PAD)
     paste_logo(img, 150, PAD - 10, PAD - 20)
     d = ImageDraw.Draw(img)
     d.rectangle([0, ph_h, W, ph_h + 10], fill="white")
@@ -146,9 +166,10 @@ def dark_panel(w, h):
     return Image.merge("RGB", (noise, noise, noise))
 
 
-def std_slide(photo, text, chevrons, max_lines, start, end):
+def std_slide(photo, text, chevrons, max_lines, credit, adj):
     img = Image.new("RGB", (SW, SH), "black")
-    img.paste(cover_crop(photo, SW, PH), (0, 0))
+    img.paste(cover_crop(photo, SW, PH, adj), (0, 0))
+    draw_credit(img, credit, 32, 32)
     img.paste(dark_panel(SW, SH - PH), (0, PH))
     paste_logo(img, 130, 40, 36)
     d = ImageDraw.Draw(img)
@@ -174,12 +195,12 @@ def std_slide(photo, text, chevrons, max_lines, start, end):
     return to_jpeg(img)
 
 
-def std_cover(photo, headline, kicker, brand, date_str):
-    return std_slide(photo, headline, True, 3, 0, 0)
+def std_cover(photo, headline, kicker, brand, date_str, credit="", adj=None):
+    return std_slide(photo, headline, True, 3, credit, adj)
 
 
-def std_detail(photo, title, body, brand, idx, total):
-    return std_slide(photo, title, idx < total, 3, 0, 0)
+def std_detail(photo, title, body, brand, idx, total, credit="", adj=None):
+    return std_slide(photo, title, idx < total, 3, credit, adj)
 
 
 TEMPLATES = {

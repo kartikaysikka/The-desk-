@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { api, errMsg } from "@/lib/api";
+import { api, errMsg, TEMPLATES } from "@/lib/api";
 
 export default function Settings() {
   const [s, setS] = useState(null);
@@ -27,6 +27,16 @@ export default function Settings() {
         <h2 className="font-display text-4xl">MASTHEAD</h2>
         <p className="font-serif text-[#6b6b66] -mt-4">Shown on every slide.</p>
         <div><label className="nd-label">Channel name</label><input data-testid="brand-name-input" className="nd-input" value={s.brand_name} onChange={set("brand_name")} required /></div>
+        <div><label className="nd-label">Default photo credit</label><input data-testid="default-photo-credit-input" className="nd-input font-mono uppercase" value={s.default_photo_credit} onChange={set("default_photo_credit")} /></div>
+        <div>
+          <label className="nd-label">Preferred template</label>
+          <div className="flex flex-wrap gap-2 mt-2">
+            {TEMPLATES.map((t) => (
+              <button type="button" key={t.id} data-testid={`default-template-${t.id}`} onClick={() => setS({ ...s, default_template: t.id })}
+                className={`font-mono text-xs uppercase tracking-widest px-3 py-2 border-2 border-black transition-colors ${s.default_template === t.id ? "bg-black text-white" : "hover:bg-black/5"}`}>{t.name}</button>
+            ))}
+          </div>
+        </div>
         <div><label className="nd-label">Always-add hashtags</label><input data-testid="default-hashtags-input" className="nd-input font-mono text-sm" value={s.default_hashtags} onChange={set("default_hashtags")} /></div>
       </section>
 

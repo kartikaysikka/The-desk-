@@ -180,7 +180,7 @@ async def refresh(request: Request, response: Response):
 
 
 # ---------- settings ----------
-DEFAULT_SETTINGS = {"brand_name": "ANI", "default_hashtags": "#ANI #news #breakingnews", "ig_user_id": "", "ig_access_token": ""}
+DEFAULT_SETTINGS = {"brand_name": "ANI", "default_hashtags": "#ANI #news #breakingnews", "default_template": "bw_informative", "default_photo_credit": "ANI Picture Service", "ig_user_id": "", "ig_access_token": ""}
 
 
 async def get_settings():
@@ -191,6 +191,8 @@ async def get_settings():
 class SettingsIn(BaseModel):
     brand_name: str
     default_hashtags: str = ""
+    default_template: str = "bw_informative"
+    default_photo_credit: str = ""
     ig_user_id: str = ""
     ig_access_token: Optional[str] = None
 
@@ -207,6 +209,8 @@ async def read_settings(user=Depends(current_user)):
 @api.put("/settings")
 async def update_settings(body: SettingsIn, user=Depends(current_user)):
     data = body.model_dump()
+    if data["default_template"] not in TEMPLATES:
+        raise HTTPException(422, "Unknown template")
     if not data.get("ig_access_token"):
         data.pop("ig_access_token")
     await db.settings.update_one({"key": "main"}, {"$set": data}, upsert=True)
@@ -256,10 +260,13 @@ async def render_post(post: dict):
     photos = [await run_in_threadpool(get_object, p) for p in post["source_images"]]
     date_str = datetime.now(timezone.utc).strftime("%d %b %Y").upper()
     total = 1 + len(post["slides"])
-    out = [await run_in_threadpool(tpl["cover"], photos[0], post["headline"], post["kicker"], s["brand_name"], date_str)]
+    credit = post.get("photo_credit", "")
+    adjs = post.get("photo_adjust") or []
+    adj = lambda k: adjs[k] if k < len(adjs) else None
+    out = [await run_in_threadpool(tpl["cover"], photos[0], post["headline"], post["kicker"], s["brand_name"], date_str, credit, adj(0))]
     for i, sl in enumerate(post["slides"]):
         ph = photos[(i + 1) % len(photos)]
-        out.append(await run_in_threadpool(tpl["detail"], ph, sl["title"], sl["body"], s["brand_name"], i + 2, total))
+        out.append(await run_in_threadpool(tpl["detail"], ph, sl["title"], sl["body"], s["brand_name"], i + 2, total, credit, adj(i + 1)))
     return [await save_file(b, "jpg", "image/jpeg", "rendered") for b in out]
 
 
@@ -278,11 +285,15 @@ def present(post):
 
 # ---------- posts ----------
 @api.post("/posts")
-async def create_post(raw_text: str = Form(...), kicker: str = Form(""), template: str = Form("bw_informative"), images: List[UploadFile] = File(...), user=Depends(current_user)):
+async def create_post(raw_text: str = Form(...), kicker: str = Form(""), template: str = Form(""), photo_credit: Optional[str] = Form(None), images: List[UploadFile] = File(...), user=Depends(current_user)):
     if not raw_text.strip():
         raise HTTPException(422, "Raw text is required")
+    settings = await get_settings()
+    template = template or settings["default_template"]
     if template not in TEMPLATES:
         raise HTTPException(422, "Unknown template")
+    if photo_credit is None:
+        photo_credit = settings["default_photo_credit"]
     if not images or len(images) > 10:
         raise HTTPException(422, "Upload 1 to 10 images")
     paths = []
@@ -296,7 +307,7 @@ async def create_post(raw_text: str = Form(...), kicker: str = Form(""), templat
     except Exception as e:
         logger.exception("AI generation failed")
         raise HTTPException(502, f"AI generation failed: {e}")
-    post = {"id": str(uuid.uuid4()), "raw_text": raw_text, "source_images": paths, "template": template, **gen, "status": "pending_review", "created_at": now_iso(), "updated_at": now_iso()}
+    post = {"id": str(uuid.uuid4()), "raw_text": raw_text, "source_images": paths, "template": template, "photo_credit": photo_credit.strip(), "photo_adjust": [], **gen, "status": "pending_review", "created_at": now_iso(), "updated_at": now_iso()}
     post["rendered_images"] = await render_post(post)
     await db.posts.insert_one(dict(post))
     return present(post)
@@ -326,8 +337,16 @@ class SlideIn(BaseModel):
     body: str
 
 
+class PhotoAdjust(BaseModel):
+    x: float = 0.5
+    y: float = 0.4
+    zoom: float = 1.0
+
+
 class PostEdit(BaseModel):
     template: str = "bw_informative"
+    photo_credit: str = ""
+    photo_adjust: List[PhotoAdjust] = []
     kicker: str
     headline: str
     slides: List[SlideIn]
